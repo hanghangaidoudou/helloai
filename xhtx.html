@@ -1,0 +1,942 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>小海同学</title>
+    <style>
+        :root {
+            --primary-color: #4285f4;
+            --error-color: #ea4335;
+            --success-color: #34a853;
+            --warning-color: #fbbc05;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        h1 {
+            color: var(--primary-color);
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .panel {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .control-panel {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        button {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.3s;
+        }
+        button:hover {
+            opacity: 0.9;
+            transform: translateY(-2px);
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        button.danger {
+            background-color: var(--error-color);
+        }
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        .status-disconnected {
+            background-color: var(--error-color);
+        }
+        .status-connecting {
+            background-color: var(--warning-color);
+        }
+        .status-connected {
+            background-color: var(--success-color);
+        }
+        .status-recording {
+            background-color: var(--primary-color);
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        #audioVisualizer {
+            width: 100%;
+            height: 120px;
+            background: linear-gradient(to bottom, #f0f0f0, #ffffff);
+            border-radius: 4px;
+            margin: 20px 0;
+        }
+        #transcript {
+            min-height: 200px;
+            max-height: 300px;
+            overflow-y: auto;
+            padding: 15px;
+            background-color: #f9f9f9;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+            white-space: pre-wrap;
+            font-family: 'Consolas', monospace;
+        }
+        .connection-info {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+        .client-id {
+            font-weight: bold;
+            color: var(--primary-color);
+        }
+        .latency {
+            color: #666;
+            font-size: 0.9em;
+        }
+        .message-log {
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 0.9em;
+            padding: 10px;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+            margin-top: 20px;
+        }
+        .tab-container {
+            display: flex;
+            margin-bottom: 15px;
+        }
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+        }
+        .tab.active {
+            border-bottom-color: var(--primary-color);
+            font-weight: bold;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .settings-row {
+            margin-bottom: 15px;
+        }
+        .settings-row label {
+            display: inline-block;
+            width: 150px;
+        }
+        .wake-word-indicator {
+            display: inline-block;
+            padding: 5px 10px;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+            margin-left: 10px;
+            font-weight: bold;
+        }
+        .wake-word-active {
+            background-color: var(--success-color);
+            color: white;
+        }
+    </style>
+</head>
+<body>
+<h1>海心AI语音助手 小海同学 (体验中心版)</h1>
+
+<div class="panel">
+    <div class="connection-info">
+        <div>
+            <span id="statusIndicator" class="status-indicator status-disconnected"></span>
+            <span id="connectionStatus">未连接</span>
+            <span class="client-id" id="clientId"></span>
+            <span id="wakeWordIndicator" class="wake-word-indicator">等待唤醒</span>
+        </div>
+        <div class="latency" id="latencyDisplay">延迟: -- ms</div>
+    </div>
+
+    <div class="control-panel">
+        <button id="connectBtn">连接服务器</button>
+        <button id="startBtn" disabled>开始录音</button>
+        <button id="stopBtn" disabled class="danger">停止录音</button>
+        <button id="clearBtn">清空记录</button>
+    </div>
+
+    <div id="audioVisualizer"></div>
+</div>
+
+<div class="panel">
+    <div class="tab-container">
+        <div class="tab active" data-tab="transcript">识别结果</div>
+        <div class="tab" data-tab="messages">通信日志</div>
+        <div class="tab" data-tab="settings">设置</div>
+    </div>
+
+    <div id="transcript" class="tab-content active"></div>
+
+    <div id="messages" class="tab-content message-log"></div>
+
+    <div id="settings" class="tab-content">
+        <h3>服务器设置</h3>
+        <div class="settings-row">
+            <label for="baseUrl">基础URL:</label>
+            <input type="text" id="baseUrl" value="192.168.2.222" style="width: 300px;">
+        </div>
+        <div class="settings-row">
+            <label for="asrPort">ASR端口:</label>
+            <input type="text" id="asrPort" value="4002" style="width: 100px;">
+        </div>
+        <div class="settings-row">
+            <label for="chatPort">问答端口:</label>
+            <input type="text" id="chatPort" value="8096" style="width: 100px;">
+        </div>
+        <div class="settings-row">
+            <label for="ttsPort">TTS端口:</label>
+            <input type="text" id="ttsPort" value="4005" style="width: 100px;">
+        </div>
+
+        <h3>音频设置</h3>
+        <div class="settings-row">
+            <label for="silenceThreshold">静音检测阈值: </label>
+            <input type="range" id="silenceThreshold" min="0.001" max="0.1" step="0.001" value="0.02">
+            <span id="thresholdValue">0.02</span>
+        </div>
+        <div class="settings-row">
+            <label for="silenceTimeout">静音超时(秒): </label>
+            <input type="number" id="silenceTimeout" min="0.5" max="5" step="0.1" value="1.5">
+        </div>
+
+        <h3>唤醒设置</h3>
+        <div class="settings-row">
+            <label for="wakeWords">唤醒词:</label>
+            <input type="text" id="wakeWords" value="小海同学,小爱同学,西海同学,薛海同学,徐海同学,秀海同学"
+                   style="width: 300px;">
+            <small>(用逗号分隔多个唤醒词)</small>
+        </div>
+
+        <button id="saveSettings">保存设置</button>
+    </div>
+</div>
+
+<audio id="ttsPlayer" hidden></audio>
+
+<script>
+    // 配置参数
+    const config = {
+        sampleRate: 16000,
+        chunkSize: 1024,
+        silenceThreshold: 0.02,
+        silenceTimeout: 1.5,
+        baseUrl: "http://192.168.2.222",
+        asrPort: "8765",
+        chatPort: "8096",
+        ttsPort: "4005",
+        mcpPort: "4001",
+        wakeWords: ["小海同学", "小爱同学", "西海同学", "薛海同学","徐海同学","秀海同学"]
+    };
+
+    // 全局变量
+    let websocket;
+    let audioContext;
+    let processor;
+    let microphone;
+    let isRecording = false;
+    let clientId;
+    let latencyStartTime;
+    let silenceCounter = 0;
+    let audioChunks = [];
+    let canvas, canvasCtx;
+    let isWaitingForResponse = false;
+    let isWakeWordDetected = false;
+    let currentTranscript = "";
+    let ttsAudioContext;
+    let ttsAudioSource;
+    let wakeWordRegex;
+
+    // DOM元素
+    const connectBtn = document.getElementById('connectBtn');
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const clearBtn = document.getElementById('clearBtn');
+
+    const statusIndicator = document.getElementById('statusIndicator');
+    const connectionStatus = document.getElementById('connectionStatus');
+    const clientIdDisplay = document.getElementById('clientId');
+    const latencyDisplay = document.getElementById('latencyDisplay');
+    const transcriptEl = document.getElementById('transcript');
+    const messageLog = document.getElementById('messages');
+    const audioVisualizer = document.getElementById('audioVisualizer');
+    const tabs = document.querySelectorAll('.tab');
+    const tabContents = document.querySelectorAll('.tab-content');
+    const wakeWordIndicator = document.getElementById('wakeWordIndicator');
+    const ttsPlayer = document.getElementById('ttsPlayer');
+
+    // 初始化
+    function init() {
+        // 加载保存的设置
+        loadSettings();
+        updateWakeWordRegex();
+
+        // 初始化音频可视化
+        initVisualizer();
+
+        // 生成客户端ID
+        clientId = 'web-' + Math.random().toString(36).substring(2, 8);
+        clientIdDisplay.textContent = `客户端ID: ${clientId}`;
+
+        // 事件监听
+        connectBtn.addEventListener('click', toggleConnection);
+        startBtn.addEventListener('click', startRecording);
+        stopBtn.addEventListener('click', stopRecording);
+        clearBtn.addEventListener('click', clearTranscript);
+
+        // 标签页切换
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                tabs.forEach(t => t.classList.remove('active'));
+                tabContents.forEach(c => c.classList.remove('active'));
+
+                tab.classList.add('active');
+                const tabName = tab.getAttribute('data-tab');
+                document.getElementById(tabName).classList.add('active');
+            });
+        });
+
+        // 设置保存
+        document.getElementById('saveSettings').addEventListener('click', saveSettings);
+        document.getElementById('silenceThreshold').addEventListener('input', (e) => {
+            document.getElementById('thresholdValue').textContent = e.target.value;
+        });
+
+        // TTS播放器事件
+        ttsPlayer.addEventListener('play', () => {
+            addMessage('开始播放TTS语音');
+        });
+
+        ttsPlayer.addEventListener('ended', () => {
+            addMessage('TTS语音播放结束');
+            isWaitingForResponse = false;
+            updateWakeWordStatus(false);
+        });
+
+        ttsPlayer.addEventListener('error', (e) => {
+            addMessage(`TTS播放错误: ${e.message}`);
+            isWaitingForResponse = false;
+            updateWakeWordStatus(false);
+        });
+    }
+
+    // 更新唤醒词正则表达式
+    function updateWakeWordRegex() {
+        try {
+            // 创建匹配近似发音的正则表达式
+            const pattern = config.wakeWords.map(word => {
+                // 将每个字转换为可匹配相似发音的正则
+                return word.split('').map(c => `${c}[^\\s]{0,2}`).join('');
+            }).join('|');
+
+            wakeWordRegex = new RegExp(`(${pattern})`, 'i');
+            addMessage(`唤醒词正则更新: ${wakeWordRegex}`);
+        } catch (e) {
+            addMessage(`创建唤醒词正则失败: ${e}`);
+            wakeWordRegex = /(小海同学|小爱同学|西海同学|薛海同学)/i;
+        }
+    }
+
+    // 初始化音频可视化
+    function initVisualizer() {
+        canvas = document.createElement('canvas');
+        canvas.width = audioVisualizer.offsetWidth;
+        canvas.height = audioVisualizer.offsetHeight;
+        audioVisualizer.appendChild(canvas);
+        canvasCtx = canvas.getContext('2d');
+
+        window.addEventListener('resize', () => {
+            canvas.width = audioVisualizer.offsetWidth;
+            canvas.height = audioVisualizer.offsetHeight;
+        });
+    }
+
+    // 加载设置
+    function loadSettings() {
+        const savedSettings = localStorage.getItem('voiceAssistantSettings');
+        if (savedSettings) {
+            const settings = JSON.parse(savedSettings);
+            Object.assign(config, settings);
+
+            // 更新UI
+            document.getElementById('baseUrl').value = config.baseUrl;
+            document.getElementById('asrPort').value = config.asrPort;
+            document.getElementById('chatPort').value = config.chatPort;
+            document.getElementById('ttsPort').value = config.ttsPort;
+            document.getElementById('wakeWords').value = config.wakeWords.join(',');
+            document.getElementById('silenceThreshold').value = config.silenceThreshold;
+            document.getElementById('thresholdValue').textContent = config.silenceThreshold;
+            document.getElementById('silenceTimeout').value = config.silenceTimeout;
+
+            addMessage('设置已加载');
+        }
+    }
+
+    // 保存设置
+    function saveSettings() {
+        config.baseUrl = document.getElementById('baseUrl').value;
+        config.asrPort = document.getElementById('asrPort').value;
+        config.chatPort = document.getElementById('chatPort').value;
+        config.ttsPort = document.getElementById('ttsPort').value;
+        config.wakeWords = document.getElementById('wakeWords').value.split(',').map(w => w.trim()).filter(w => w);
+        config.silenceThreshold = parseFloat(document.getElementById('silenceThreshold').value);
+        config.silenceTimeout = parseFloat(document.getElementById('silenceTimeout').value);
+
+        localStorage.setItem('voiceAssistantSettings', JSON.stringify(config));
+        updateWakeWordRegex();
+        addMessage('设置已保存');
+    }
+
+    // 连接/断开服务器
+    async function toggleConnection() {
+        if (websocket && websocket.readyState === WebSocket.OPEN) {
+            await disconnect();
+        } else {
+            await connect();
+        }
+    }
+
+    // 连接服务器
+    async function connect() {
+try {
+    updateStatus('连接中...', 'status-connecting');
+    connectBtn.disabled = true;
+
+    // 构建WebSocket URL
+    let wsUrl;
+    if (config.baseUrl.startsWith('http://')) {
+        wsUrl = config.baseUrl.replace('http://', 'ws://');
+    } else if (config.baseUrl.startsWith('https://')) {
+        wsUrl = config.baseUrl.replace('https://', 'wss://');
+    } else {
+        // 如果没有协议头，默认使用ws://
+        wsUrl = `ws://${config.baseUrl}`;
+    }
+
+    // 添加端口
+    wsUrl += `:${config.asrPort}`;
+
+    addMessage(`正在连接WebSocket: ${wsUrl}`);
+    websocket = new WebSocket(wsUrl);
+
+    websocket.onopen = () => {
+        addMessage('WebSocket连接已建立');
+        updateStatus('已连接', 'status-connected');
+        connectBtn.textContent = '断开连接';
+        connectBtn.disabled = false;
+        startBtn.disabled = false;
+
+        // 发送客户端信息
+        websocket.send(JSON.stringify({
+            type: 'clientInfo',
+            clientId: clientId,
+            sampleRate: config.sampleRate
+        }));
+
+        // 开始心跳检测
+        startHeartbeat();
+    };
+
+    websocket.onmessage = (event) => {
+        if (typeof event.data === 'string') {
+            addMessage(`收到消息: ${event.data}`);
+            handleTextMessage(event.data);
+        } else {
+            addMessage(`收到二进制数据，长度: ${event.data.byteLength}`);
+        }
+    };
+
+    websocket.onerror = (error) => {
+        addMessage(`WebSocket错误: ${JSON.stringify(error)}`);
+        updateStatus('连接错误', 'status-disconnected');
+        connectBtn.textContent = '连接服务器';
+        connectBtn.disabled = false;
+    };
+
+    websocket.onclose = (event) => {
+        addMessage(`连接关闭，代码: ${event.code}, 原因: ${event.reason || '无原因'}`);
+        updateStatus('已断开', 'status-disconnected');
+        connectBtn.textContent = '连接服务器';
+        connectBtn.disabled = false;
+        startBtn.disabled = true;
+        stopBtn.disabled = true;
+
+        if (isRecording) {
+            stopRecording();
+        }
+
+        stopHeartbeat();
+    };
+
+} catch (error) {
+    addMessage(`连接异常: ${error}`);
+    updateStatus('连接失败', 'status-disconnected');
+    connectBtn.disabled = false;
+}
+}
+
+    // 断开连接
+    async function disconnect() {
+        if (websocket) {
+            try {
+                await websocket.close(1000, '用户主动断开');
+            } catch (error) {
+                addMessage(`断开连接错误: ${error}`);
+            }
+        }
+    }
+
+    // 处理文本消息
+    function handleTextMessage(message) {
+        if (message === 'SERVER_READY') {
+            addMessage('服务器已就绪');
+            return;
+        }
+
+        if (message === 'PONG') {
+            const latency = Date.now() - latencyStartTime;
+            latencyDisplay.textContent = `延迟: ${latency} ms`;
+            return;
+        }
+
+        if (message.startsWith('RESULT:')) {
+            const text = message.substring(7);
+            currentTranscript += text;
+            transcriptEl.textContent += text;
+            transcriptEl.scrollTop = transcriptEl.scrollHeight;
+            addMessage(`收到识别结果: ${text}`);
+
+            // 检测唤醒词
+            if (!isWakeWordDetected && wakeWordRegex.test(currentTranscript)) {
+
+                isWakeWordDetected = true;
+                updateWakeWordStatus(true);
+                currentTranscript = ""; // 清空当前记录，准备新的查询
+                transcriptEl.textContent = "我在";
+                addMessage("唤醒词检测成功");
+
+                // 调用TTS播放"我在"
+                 playTTS("我在");
+
+            }
+
+            // 如果已唤醒且检测到静音，发送查询
+            if (isWakeWordDetected && silenceCounter >= config.silenceTimeout && currentTranscript.trim()) {
+                sendToChatAPI(currentTranscript);
+                currentTranscript = "";
+            }
+
+            return;
+        }
+
+        // 其他消息
+        addMessage(`服务器消息: ${message}`);
+    }
+
+    // 更新唤醒词状态显示
+    function updateWakeWordStatus(active) {
+        if(transcriptEl.textContent != "我在")
+        {
+        isWakeWordDetected = active;
+        if (active) {
+            wakeWordIndicator.textContent = "已唤醒";
+            wakeWordIndicator.classList.add('wake-word-active');
+        } else {
+            wakeWordIndicator.textContent = "等待唤醒";
+            wakeWordIndicator.classList.remove('wake-word-active');
+        }
+        }
+    }
+
+    // 开始录音
+    async function startRecording() {
+        if (isRecording) return;
+
+        try {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                sampleRate: config.sampleRate
+            });
+
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            microphone = audioContext.createMediaStreamSource(stream);
+
+            processor = audioContext.createScriptProcessor(config.chunkSize, 1, 1);
+            processor.onaudioprocess = processAudio;
+
+            microphone.connect(processor);
+            processor.connect(audioContext.destination);
+
+            isRecording = true;
+            startBtn.disabled = true;
+            stopBtn.disabled = false;
+            updateStatus('录音中...', 'status-recording');
+            addMessage('录音已开始');
+
+        } catch (error) {
+            addMessage(`录音错误: ${error.message}`);
+            updateStatus('录音失败', 'status-connected');
+        }
+    }
+
+    // 停止录音
+    function stopRecording() {
+        if (!isRecording) return;
+
+        if (microphone) {
+            microphone.disconnect();
+        }
+        if (processor) {
+            processor.disconnect();
+        }
+        if (audioContext) {
+            audioContext.close();
+        }
+
+        isRecording = false;
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+        updateStatus('已连接', 'status-connected');
+        addMessage('录音已停止');
+
+        // 发送剩余音频
+        if (audioChunks.length > 0) {
+            sendAudio(audioChunks);
+            audioChunks = [];
+        }
+    }
+
+    // 处理音频数据
+    function processAudio(event) {
+        if (!websocket || websocket.readyState !== WebSocket.OPEN) return;
+
+        const inputData = event.inputBuffer.getChannelData(0);
+        const rawData = new Int16Array(inputData.length);
+
+        // 计算RMS值用于VAD
+        let sum = 0;
+        for (let i = 0; i < inputData.length; i++) {
+            const sample = Math.max(-1, Math.min(1, inputData[i]));
+            rawData[i] = sample * 32767;
+            sum += sample * sample;
+        }
+        const rms = Math.sqrt(sum / inputData.length);
+
+        // 可视化
+        visualizeAudio(inputData);
+
+        // VAD检测
+        if (rms > config.silenceThreshold) {
+            silenceCounter = 0;
+            audioChunks.push(rawData.buffer);
+        } else {
+            silenceCounter += inputData.length / config.sampleRate;
+
+            // 静音超时，发送音频
+            if (silenceCounter >= config.silenceTimeout && audioChunks.length > 0) {
+                sendAudio(audioChunks);
+                audioChunks = [];
+            }
+        }
+    }
+
+    // 发送音频数据
+    function sendAudio(chunks) {
+        if (!websocket || websocket.readyState !== WebSocket.OPEN) return;
+
+        try {
+            // 合并所有chunks
+            const merged = mergeArrayBuffers(chunks);
+
+            // 检查最小长度 (0.1秒)
+            if (merged.byteLength >= config.sampleRate * 0.1 * 2) {
+                websocket.send(merged);
+                console.log(`发送音频数据: ${(merged.byteLength / (config.sampleRate * 2)).toFixed(2)}秒`);
+                addMessage(`发送音频数据: ${(merged.byteLength / (config.sampleRate * 2)).toFixed(2)}秒`);
+            }
+        } catch (error) {
+            addMessage(`发送音频错误: ${error}`);
+        }
+    }
+
+    // 合并ArrayBuffer
+    function mergeArrayBuffers(buffers) {
+        const totalLength = buffers.reduce((acc, buffer) => acc + buffer.byteLength, 0);
+        const result = new Uint8Array(totalLength);
+        let offset = 0;
+
+        buffers.forEach(buffer => {
+            result.set(new Uint8Array(buffer), offset);
+            offset += buffer.byteLength;
+        });
+
+        return result.buffer;
+    }
+
+    // 音频可视化
+    function visualizeAudio(data) {
+        if (!canvasCtx) return;
+
+        const width = canvas.width;
+        const height = canvas.height;
+
+        canvasCtx.fillStyle = 'rgb(250, 250, 250)';
+        canvasCtx.fillRect(0, 0, width, height);
+        canvasCtx.lineWidth = 2;
+        canvasCtx.strokeStyle = isWakeWordDetected ? 'rgb(52, 168, 83)' : 'rgb(66, 133, 244)';
+        canvasCtx.beginPath();
+
+        const sliceWidth = width / data.length;
+        let x = 0;
+
+        for (let i = 0; i < data.length; i++) {
+            const v = data[i] * height / 2;
+            const y = height / 2 + v;
+
+            if (i === 0) {
+                canvasCtx.moveTo(x, y);
+            } else {
+                canvasCtx.lineTo(x, y);
+            }
+
+            x += sliceWidth;
+        }
+
+        canvasCtx.lineTo(width, height / 2);
+        canvasCtx.stroke();
+    }
+    // 发送到MCP API调用服务器
+
+    // 发送到问答API
+    async function sendToChatAPI(query) {
+    if (!query.trim()) return;
+
+    if (isWaitingForResponse) {
+        addMessage("已有请求在处理中，忽略本次查询");
+        return;
+    }
+
+    isWaitingForResponse = true;
+    updateWakeWordStatus(false);
+
+    try {
+        addMessage(`发送到问答API: ${query}`);
+        transcriptEl.textContent += `\n[用户]: ${query}\n`;
+
+        const url = `http://${config.baseUrl}:${config.chatPort}/v3/chat/completions`;
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'telnumber': '13898611188',
+                'sessionid': '202404111353432743-00'
+            },
+            body: JSON.stringify(query)
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        let answer = await response.text();
+        addMessage(`收到问答API响应: ${answer}`);
+
+        // Call the additional API endpoint
+        try {
+            const trimmedAnswer = answer.trim();
+
+            const mcpUrl = `http://${config.baseUrl}:${config.mcpPort}/mcp?message=${encodeURIComponent(trimmedAnswer)}`;
+            const mcpResponse = await fetch(mcpUrl);
+
+            if (!mcpResponse.ok) {
+                throw new Error(`MCP API error! status: ${mcpResponse.status}`);
+            }
+
+            // Update the answer with the response from the MCP API
+            answer = await mcpResponse.text();
+            addMessage(`MCP API处理后结果: ${answer}`);
+            transcriptEl.textContent += `[小海同学]: ${answer}\n`;
+            transcriptEl.scrollTop = transcriptEl.scrollHeight;
+        } catch (mcpError) {
+            addMessage(`MCP API处理错误: ${mcpError}`);
+            // Continue with original answer even if MCP API fails
+        }
+
+        // 调用TTS
+        await playTTS(answer);
+
+    } catch (error) {
+        addMessage(`问答API错误: ${error}`);
+    } finally {
+        isWaitingForResponse = false;
+    }
+}
+
+    // 播放TTS
+    // 播放TTS（分段处理）
+    async function playTTS(text) {
+        try {
+            // 按照标点符号分段（中文和英文标点）
+            const segments = splitTextByPunctuation(text);
+            addMessage(`分段结果: ${segments.join(' | ')}`);
+
+            // 依次处理每一段
+            for (const segment of segments) {
+                if (!segment.trim()) continue;
+
+                await processSegment(segment);
+            }
+
+        } catch (error) {
+            addMessage(`TTS处理错误: ${error}`);
+        } finally {
+            isWaitingForResponse = false;
+        }
+    }
+
+    // 按照标点符号分割文本
+    function splitTextByPunctuation(text) {
+        // 使用正则表达式分割文本（包括中文和英文标点）
+        const splitRegex = /([。！？；!?;]\s*)/;
+        const segments = text.split(splitRegex);
+
+        // 合并分割后的片段（将标点符号放回前一段末尾）
+        const result = [];
+        for (let i = 0; i < segments.length; i += 2) {
+            const segment = (segments[i] || '') + (segments[i+1] || '');
+            if (segment.trim()) {
+                result.push(segment.trim());
+            }
+        }
+
+        // 如果没有标点符号，返回整个文本作为一段
+        return result.length > 0 ? result : [text];
+    }
+
+    // 处理单个文本段
+    async function processSegment(segment) {
+        return new Promise(async (resolve, reject) => {
+            try {
+                addMessage(`发送到TTS API: ${segment}`);
+                const url = `http://${config.baseUrl}:${config.ttsPort}/tts`;
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ sentence: segment })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const audioBlob = await response.blob();
+                const audioUrl = URL.createObjectURL(audioBlob);
+
+                // 停止当前播放
+                ttsPlayer.pause();
+                ttsPlayer.src = audioUrl;
+
+                // 设置播放结束时的回调
+                ttsPlayer.onended = () => {
+                    URL.revokeObjectURL(audioUrl); // 释放内存
+                    resolve();
+                };
+
+                // 播放音频
+                ttsPlayer.play().catch(e => {
+                    addMessage(`播放错误: ${e.message}`);
+                    reject(e);
+                });
+
+            } catch (error) {
+                addMessage(`TTS API错误: ${segment}: ${error}`);
+                reject(error);
+            }
+        });
+    }
+
+    // 心跳检测
+    function startHeartbeat() {
+        latencyStartTime = Date.now();
+        websocket.send('PING');
+        heartbeatInterval = setInterval(() => {
+            latencyStartTime = Date.now();
+            websocket.send('PING');
+        }, 10000); // 每10秒一次
+    }
+
+    function stopHeartbeat() {
+        if (heartbeatInterval) {
+            clearInterval(heartbeatInterval);
+        }
+    }
+
+    // 更新状态显示
+    function updateStatus(text, className) {
+        connectionStatus.textContent = text;
+
+        // 移除所有状态类
+        statusIndicator.classList.remove(
+            'status-disconnected',
+            'status-connecting',
+            'status-connected',
+            'status-recording'
+        );
+
+        // 添加新类
+        if (className) {
+            statusIndicator.classList.add(className);
+        }
+    }
+
+    // 添加消息到日志
+    function addMessage(message) {
+        const now = new Date();
+        const timeStr = now.toLocaleTimeString();
+        messageLog.innerHTML += `[${timeStr}] ${message}\n`;
+        messageLog.scrollTop = messageLog.scrollHeight;
+    }
+
+    // 清空识别结果
+    function clearTranscript() {
+        transcriptEl.textContent = '';
+        currentTranscript = '';
+        addMessage('已清空识别结果');
+    }
+
+    // 初始化应用
+    window.addEventListener('load', init);
+</script>
+</body>
+</html>
